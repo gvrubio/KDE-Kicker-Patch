@@ -1,0 +1,43 @@
+From ad22738352472e162293de365973b23590bb0ec1 Mon Sep 17 00:00:00 2001
+From: gvrubio <gvidalrubio@gmail.com>
+Date: Sun, 25 Oct 2026 13:09:31 +0100
+Subject: [PATCH 2/5] applets/kicker: use QQC2.Action for delegate actions
+
+The delegates only use the action's triggered signal and trigger(), which
+the plain QtQuick.Controls Action provides. Kirigami.Action additionally
+creates a Shortcut and a Connections object for every delegate, which
+adds up when search results create hundreds of delegates per keystroke.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ applets/kicker/ItemAbstractDelegate.qml | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/applets/kicker/ItemAbstractDelegate.qml b/applets/kicker/ItemAbstractDelegate.qml
+index 7b6b9b3948..f5e6057510 100644
+--- a/applets/kicker/ItemAbstractDelegate.qml
++++ b/applets/kicker/ItemAbstractDelegate.qml
+@@ -5,8 +5,8 @@
+  */
+ 
+ import QtQuick
++import QtQuick.Controls as QQC2
+ 
+-import org.kde.kirigami as Kirigami
+ import org.kde.plasma.components as PlasmaComponents3
+ 
+ import "code/tools.js" as Tools
+@@ -40,7 +40,9 @@ PlasmaComponents3.ItemDelegate {
+     icon.name: decoration
+     hoverEnabled: true
+ 
+-    action: Kirigami.Action {
++    // plain QQC2.Action: Kirigami.Action also creates a Shortcut and Connections per delegate,
++    // which adds up when search results recreate hundreds of delegates per keystroke
++    action: QQC2.Action {
+         onTriggered: source => {
+             if (item.dragActive) { return }
+             if (!item.hasChildren) {
+-- 
+2.56.0
+

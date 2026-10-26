@@ -1,0 +1,206 @@
+diff --git a/applets/kicker/ItemAbstractDelegate.qml b/applets/kicker/ItemAbstractDelegate.qml
+index 3e0801e1ac..f5e6057510 100644
+--- a/applets/kicker/ItemAbstractDelegate.qml
++++ b/applets/kicker/ItemAbstractDelegate.qml
+@@ -5,8 +5,8 @@
+  */
+ 
+ import QtQuick
++import QtQuick.Controls as QQC2
+ 
+-import org.kde.kirigami as Kirigami
+ import org.kde.plasma.components as PlasmaComponents3
+ 
+ import "code/tools.js" as Tools
+@@ -22,7 +22,6 @@ PlasmaComponents3.ItemDelegate {
+     required property bool hasActionList
+     required property bool isNewlyInstalled
+     required property string favoriteId
+-    required property var /*QVariantList*/ actionList
+     required property url url
+     required property string description
+     required property string decoration
+@@ -41,7 +40,9 @@ PlasmaComponents3.ItemDelegate {
+     icon.name: decoration
+     hoverEnabled: true
+ 
+-    action: Kirigami.Action {
++    // plain QQC2.Action: Kirigami.Action also creates a Shortcut and Connections per delegate,
++    // which adds up when search results recreate hundreds of delegates per keystroke
++    action: QQC2.Action {
+         onTriggered: source => {
+             if (item.dragActive) { return }
+             if (!item.hasChildren) {
+@@ -54,7 +55,9 @@ PlasmaComponents3.ItemDelegate {
+     }
+ 
+     function openActionMenu(x: real, y: real) : void {
+-        const actionList = item.hasActionList ? item.actionList : [];
++        // actionList is costly to compute (jump lists, recent documents, ...), so only
++        // fetch it from the model when the menu is opened, not on delegate creation
++        const actionList = item.hasActionList ? item.model.actionList : [];
+         Tools.fillActionMenu(i18n, ActionMenu, actionList, item.favoritesModel, item.favoriteId);
+         if (!ActionMenu.actionList.length) {
+             return
+diff --git a/applets/kicker/ItemGridDelegate.qml b/applets/kicker/ItemGridDelegate.qml
+index ccfbf60c07..eb7dba5dc2 100644
+--- a/applets/kicker/ItemGridDelegate.qml
++++ b/applets/kicker/ItemGridDelegate.qml
+@@ -15,7 +15,10 @@ import org.kde.plasma.components as PlasmaComponents3
+ ItemAbstractDelegate {
+     id: root
+ 
+-    property alias iconSize: icon.implicitWidth
++    property int iconSize: Kirigami.Units.iconSizes.huge
++    // load icon and label after the delegate itself, so views with many delegates (e.g. search
++    // results, which are all recreated on every keystroke) don't block input while populating
++    property bool loadContentAsynchronously: false
+     property int itemIndex: root.index
+     property var m: model
+     property bool showUnfavoritePlaceholder: false
+@@ -57,52 +60,57 @@ ItemAbstractDelegate {
+     }
+ 
+     background.visible: false // we want the default background's spacing, but not the base color
+-    contentItem: ColumnLayout {
+-        spacing: Kirigami.Units.smallSpacing
++    contentItem: Loader {
+         visible: !root.showUnfavoritePlaceholder
++        asynchronous: root.loadContentAsynchronously
+ 
+-        Kirigami.Icon {
+-            id: icon
++        sourceComponent: ColumnLayout {
++            spacing: Kirigami.Units.smallSpacing
+ 
+-            Layout.alignment: Qt.AlignHCenter | Qt.AlignBottom
++            Kirigami.Icon {
++                id: icon
+ 
+-            implicitHeight: width
++                Layout.alignment: Qt.AlignHCenter | Qt.AlignBottom
+ 
+-            animated: false
++                implicitWidth: root.iconSize
++                implicitHeight: width
+ 
+-            source: root.model.decoration
++                animated: false
+ 
+-            Loader {
+-                anchors {
+-                    right: parent.right
+-                    rightMargin: -root.rightPadding
+-                    top: parent.top
+-                }
+-                visible: active
+-                active: root.isNewlyInstalled ?? false
++                source: root.model.decoration
++
++                Loader {
++                    anchors {
++                        right: parent.right
++                        rightMargin: -root.rightPadding
++                        top: parent.top
++                    }
++                    visible: active
++                    active: root.isNewlyInstalled ?? false
+ 
+-                sourceComponent: Kirigami.Badge {
+-                    text: i18nc("@label Newly-installed app, badge, keep short", "New!")
+-                    type: Kirigami.Badge.Type.Positive
+-                    Accessible.name: i18nc("@label Accessible name for badge", "Newly-installed application")
++                    sourceComponent: Kirigami.Badge {
++                        text: i18nc("@label Newly-installed app, badge, keep short", "New!")
++                        type: Kirigami.Badge.Type.Positive
++                        Accessible.name: i18nc("@label Accessible name for badge", "Newly-installed application")
++                    }
+                 }
+             }
+-        }
+ 
+-        PlasmaComponents3.Label {
+-            id: label
++            PlasmaComponents3.Label {
++                id: label
+ 
+-            Layout.fillWidth: true
+-            Layout.preferredHeight: label.lineCount === 1 ? label.implicitHeight * 2 : label.implicitHeight
++                Layout.fillWidth: true
++                Layout.preferredHeight: label.lineCount === 1 ? label.implicitHeight * 2 : label.implicitHeight
+ 
+-            horizontalAlignment: Text.AlignHCenter
++                horizontalAlignment: Text.AlignHCenter
+ 
+-            maximumLineCount: 2
+-            elide: Text.ElideMiddle
+-            wrapMode: Text.Wrap
++                maximumLineCount: 2
++                elide: Text.ElideMiddle
++                wrapMode: Text.Wrap
+ 
+-            text: root.model.display ?? ""
+-            textFormat: Text.PlainText
++                text: root.model.display ?? ""
++                textFormat: Text.PlainText
++            }
+         }
+     }
+ 
+@@ -132,8 +140,13 @@ ItemAbstractDelegate {
+         }
+     }
+ 
+-    PlasmaComponents3.ToolTip {
+-        text: root.model.description ?? ""
+-        visible: root.hovered && !ActionMenu.opened
++    // only create the tooltip popup when needed, it is costly to have one per delegate
++    Loader {
++        active: root.hovered
++        sourceComponent: PlasmaComponents3.ToolTip {
++            parent: root
++            text: root.model.description ?? ""
++            visible: root.hovered && !ActionMenu.opened
++        }
+     }
+ }
+diff --git a/applets/kicker/ItemGridView.qml b/applets/kicker/ItemGridView.qml
+index 4db87e24c9..f1307fd699 100644
+--- a/applets/kicker/ItemGridView.qml
++++ b/applets/kicker/ItemGridView.qml
+@@ -35,6 +35,8 @@ FocusScope {
+     property alias cellWidth: gridView.cellWidth
+     property alias cellHeight: gridView.cellHeight
+     property alias iconSize: gridView.iconSize
++    property alias displayMarginBeginning: gridView.displayMarginBeginning
++    property alias displayMarginEnd: gridView.displayMarginEnd
+ 
+     onFocusChanged: {
+         if (!focus && !root.keyEventProxy.activeFocus) {
+@@ -232,6 +234,7 @@ FocusScope {
+ 
+             delegate: ItemGridDelegate {
+                 iconSize: gridView.iconSize
++                loadContentAsynchronously: !itemGrid.dropEnabled
+                 onInteractionConcluded: itemGrid.interactionConcluded()
+                 hoverEnabled: itemGrid.hoverEnabled
+                 onHoveredChanged: {
+diff --git a/applets/kicker/ItemMultiGridView.qml b/applets/kicker/ItemMultiGridView.qml
+index 69a61a6c47..9e9d7c6644 100644
+--- a/applets/kicker/ItemMultiGridView.qml
++++ b/applets/kicker/ItemMultiGridView.qml
+@@ -169,6 +169,14 @@ PlasmaComponents.ScrollView {
+                         width: parent.width
+                         height: Math.ceil(count / Math.floor(width / itemMultiGrid.cellSize)) * itemMultiGrid.cellSize
+ 
++                        // The grid is as tall as its content and scrolled by our Flickable, so on its
++                        // own it would create a delegate for every item, which makes search slow with
++                        // many results. Negative display margins limit it to the part scrolled into view.
++                        readonly property real visibleTop: Math.max(0, Math.min(height, flickable.contentY - gridDelegate.y - y))
++                        readonly property real visibleBottom: Math.max(0, Math.min(height, flickable.contentY + flickable.height - gridDelegate.y - y))
++                        displayMarginBeginning: -visibleTop
++                        displayMarginEnd: -(height - visibleBottom)
++
+                         cellWidth: itemMultiGrid.cellSize
+                         cellHeight: itemMultiGrid.cellSize
+                         iconSize: itemMultiGrid.iconSize

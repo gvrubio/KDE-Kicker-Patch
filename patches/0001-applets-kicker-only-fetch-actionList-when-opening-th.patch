@@ -1,0 +1,47 @@
+From 11356349021ea61138bc17d040b40662342dca7f Mon Sep 17 00:00:00 2001
+From: gvrubio <gvidalrubio@gmail.com>
+Date: Sun, 25 Oct 2026 13:09:23 +0100
+Subject: [PATCH 1/5] applets/kicker: only fetch actionList when opening the
+ context menu
+
+Since d5648c1929 actionList is a required property of the delegates, so
+every delegate reads the actionList role when it is created. For apps
+that role builds jump list actions, queries recent documents and looks
+up AppStream data, and search results recreate all delegates on every
+keystroke, which makes typing in the search field lag noticeably.
+
+code/tools.js already notes that accessing actionList is costly and
+should only happen when the menu is needed. Read it from the model in
+openActionMenu() again instead.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ applets/kicker/ItemAbstractDelegate.qml | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/applets/kicker/ItemAbstractDelegate.qml b/applets/kicker/ItemAbstractDelegate.qml
+index 3e0801e1ac..7b6b9b3948 100644
+--- a/applets/kicker/ItemAbstractDelegate.qml
++++ b/applets/kicker/ItemAbstractDelegate.qml
+@@ -22,7 +22,6 @@ PlasmaComponents3.ItemDelegate {
+     required property bool hasActionList
+     required property bool isNewlyInstalled
+     required property string favoriteId
+-    required property var /*QVariantList*/ actionList
+     required property url url
+     required property string description
+     required property string decoration
+@@ -54,7 +53,9 @@ PlasmaComponents3.ItemDelegate {
+     }
+ 
+     function openActionMenu(x: real, y: real) : void {
+-        const actionList = item.hasActionList ? item.actionList : [];
++        // actionList is costly to compute (jump lists, recent documents, ...), so only
++        // fetch it from the model when the menu is opened, not on delegate creation
++        const actionList = item.hasActionList ? item.model.actionList : [];
+         Tools.fillActionMenu(i18n, ActionMenu, actionList, item.favoritesModel, item.favoriteId);
+         if (!ActionMenu.actionList.length) {
+             return
+-- 
+2.56.0
+

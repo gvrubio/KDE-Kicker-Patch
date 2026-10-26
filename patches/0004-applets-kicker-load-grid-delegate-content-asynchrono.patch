@@ -1,0 +1,142 @@
+From e6f88a844c2582fb20b8d9c7ae70c3ff2602d4df Mon Sep 17 00:00:00 2001
+From: gvrubio <gvidalrubio@gmail.com>
+Date: Sun, 25 Oct 2026 13:09:49 +0100
+Subject: [PATCH 4/5] applets/kicker: load grid delegate content asynchronously
+
+Search results replace all rows of their models on every keystroke, and
+each ItemGridDelegate synchronously created its icon (loaded on the GUI
+thread at huge size), label and layout. With many results this blocked
+input for hundreds of milliseconds, so keys typed meanwhile arrived in
+bursts.
+
+Load the delegate content with an asynchronous Loader in grids that do
+not accept drops, so it is incubated between frames and discarded when
+the results change again before it finished. Favorites grids load as
+before.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ applets/kicker/ItemGridDelegate.qml | 72 ++++++++++++++++-------------
+ applets/kicker/ItemGridView.qml     |  1 +
+ 2 files changed, 41 insertions(+), 32 deletions(-)
+
+diff --git a/applets/kicker/ItemGridDelegate.qml b/applets/kicker/ItemGridDelegate.qml
+index 9614ed1471..eb7dba5dc2 100644
+--- a/applets/kicker/ItemGridDelegate.qml
++++ b/applets/kicker/ItemGridDelegate.qml
+@@ -15,7 +15,10 @@ import org.kde.plasma.components as PlasmaComponents3
+ ItemAbstractDelegate {
+     id: root
+ 
+-    property alias iconSize: icon.implicitWidth
++    property int iconSize: Kirigami.Units.iconSizes.huge
++    // load icon and label after the delegate itself, so views with many delegates (e.g. search
++    // results, which are all recreated on every keystroke) don't block input while populating
++    property bool loadContentAsynchronously: false
+     property int itemIndex: root.index
+     property var m: model
+     property bool showUnfavoritePlaceholder: false
+@@ -57,52 +60,57 @@ ItemAbstractDelegate {
+     }
+ 
+     background.visible: false // we want the default background's spacing, but not the base color
+-    contentItem: ColumnLayout {
+-        spacing: Kirigami.Units.smallSpacing
++    contentItem: Loader {
+         visible: !root.showUnfavoritePlaceholder
++        asynchronous: root.loadContentAsynchronously
+ 
+-        Kirigami.Icon {
+-            id: icon
++        sourceComponent: ColumnLayout {
++            spacing: Kirigami.Units.smallSpacing
+ 
+-            Layout.alignment: Qt.AlignHCenter | Qt.AlignBottom
++            Kirigami.Icon {
++                id: icon
+ 
+-            implicitHeight: width
++                Layout.alignment: Qt.AlignHCenter | Qt.AlignBottom
+ 
+-            animated: false
++                implicitWidth: root.iconSize
++                implicitHeight: width
+ 
+-            source: root.model.decoration
++                animated: false
+ 
+-            Loader {
+-                anchors {
+-                    right: parent.right
+-                    rightMargin: -root.rightPadding
+-                    top: parent.top
+-                }
+-                visible: active
+-                active: root.isNewlyInstalled ?? false
++                source: root.model.decoration
++
++                Loader {
++                    anchors {
++                        right: parent.right
++                        rightMargin: -root.rightPadding
++                        top: parent.top
++                    }
++                    visible: active
++                    active: root.isNewlyInstalled ?? false
+ 
+-                sourceComponent: Kirigami.Badge {
+-                    text: i18nc("@label Newly-installed app, badge, keep short", "New!")
+-                    type: Kirigami.Badge.Type.Positive
+-                    Accessible.name: i18nc("@label Accessible name for badge", "Newly-installed application")
++                    sourceComponent: Kirigami.Badge {
++                        text: i18nc("@label Newly-installed app, badge, keep short", "New!")
++                        type: Kirigami.Badge.Type.Positive
++                        Accessible.name: i18nc("@label Accessible name for badge", "Newly-installed application")
++                    }
+                 }
+             }
+-        }
+ 
+-        PlasmaComponents3.Label {
+-            id: label
++            PlasmaComponents3.Label {
++                id: label
+ 
+-            Layout.fillWidth: true
+-            Layout.preferredHeight: label.lineCount === 1 ? label.implicitHeight * 2 : label.implicitHeight
++                Layout.fillWidth: true
++                Layout.preferredHeight: label.lineCount === 1 ? label.implicitHeight * 2 : label.implicitHeight
+ 
+-            horizontalAlignment: Text.AlignHCenter
++                horizontalAlignment: Text.AlignHCenter
+ 
+-            maximumLineCount: 2
+-            elide: Text.ElideMiddle
+-            wrapMode: Text.Wrap
++                maximumLineCount: 2
++                elide: Text.ElideMiddle
++                wrapMode: Text.Wrap
+ 
+-            text: root.model.display ?? ""
+-            textFormat: Text.PlainText
++                text: root.model.display ?? ""
++                textFormat: Text.PlainText
++            }
+         }
+     }
+ 
+diff --git a/applets/kicker/ItemGridView.qml b/applets/kicker/ItemGridView.qml
+index 4db87e24c9..d28eb3d661 100644
+--- a/applets/kicker/ItemGridView.qml
++++ b/applets/kicker/ItemGridView.qml
+@@ -232,6 +232,7 @@ FocusScope {
+ 
+             delegate: ItemGridDelegate {
+                 iconSize: gridView.iconSize
++                loadContentAsynchronously: !itemGrid.dropEnabled
+                 onInteractionConcluded: itemGrid.interactionConcluded()
+                 hoverEnabled: itemGrid.hoverEnabled
+                 onHoveredChanged: {
+-- 
+2.56.0
+

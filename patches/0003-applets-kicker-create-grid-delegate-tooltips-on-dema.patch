@@ -1,0 +1,39 @@
+From 32c5b92ecda04860e6645b37dc272a5cdd083b18 Mon Sep 17 00:00:00 2001
+From: gvrubio <gvidalrubio@gmail.com>
+Date: Sun, 25 Oct 2026 13:09:42 +0100
+Subject: [PATCH 3/5] applets/kicker: create grid delegate tooltips on demand
+
+Every ItemGridDelegate instantiated its own ToolTip popup, including its
+background frame and label, even though at most one tooltip is shown at
+a time. In the dashboard this was about 13% of the cost of creating a
+delegate. Load the tooltip only while the delegate is hovered.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ applets/kicker/ItemGridDelegate.qml | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/applets/kicker/ItemGridDelegate.qml b/applets/kicker/ItemGridDelegate.qml
+index ccfbf60c07..9614ed1471 100644
+--- a/applets/kicker/ItemGridDelegate.qml
++++ b/applets/kicker/ItemGridDelegate.qml
+@@ -132,8 +132,13 @@ ItemAbstractDelegate {
+         }
+     }
+ 
+-    PlasmaComponents3.ToolTip {
+-        text: root.model.description ?? ""
+-        visible: root.hovered && !ActionMenu.opened
++    // only create the tooltip popup when needed, it is costly to have one per delegate
++    Loader {
++        active: root.hovered
++        sourceComponent: PlasmaComponents3.ToolTip {
++            parent: root
++            text: root.model.description ?? ""
++            visible: root.hovered && !ActionMenu.opened
++        }
+     }
+ }
+-- 
+2.56.0
+
